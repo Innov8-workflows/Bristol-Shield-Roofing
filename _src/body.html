@@ -14,6 +14,23 @@
 /* Two of the three before/after pairs are wide photographs. The golden
    4:5 box would crop most of the roof out, so those rows carry their own ratio. */
 .ba.wide{aspect-ratio:4/3}
+/* Hero: two clips on a crossfade loop. Only the INCOMING clip fades, and it
+   sits on a strictly higher z-index than the outgoing one, so the picture never
+   dips dark mid-fade and the wrap from clip 2 back to clip 1 is a real fade,
+   not a snap. .hero-media is its own stacking context, so these z-indexes
+   never reach the scrim. */
+.hero-video{opacity:0;transition:opacity 1s ease;z-index:0}
+.hero-video.on{opacity:1}
+.hero-video.top{z-index:2}
+.hero-video.under{z-index:1}
+/* The drone transformation clip is 16:9; the golden 4:5 box would crop most
+   of the house out. Match the wide slider rows. */
+.zig-video.wide{aspect-ratio:4/3}
+/* The head stylesheet zeroes every transition under reduced motion, which
+   turns the crossfade into a hard cut. Jay's own machine runs with reduced
+   motion ON, so the hero fade is exempted: it is a gentle opacity change, not
+   movement. */
+@media(prefers-reduced-motion:reduce){.hero-video{transition-duration:1s !important}}
 </style>
 
 <!-- ================= NAV ================= -->
@@ -80,9 +97,12 @@
 <section class="hero s-dark" id="top">
   <!-- HERO MEDIA: swap the slides below for a single <video class="hero-video" autoplay muted loop playsinline poster="..."><source src="data:video/mp4;base64,..." type="video/mp4"></video> -->
   <div class="hero-media" id="heroMedia">
-    <div class="hero-slide on" style="background-image:url('{{ASSET:hero1.webp}}')"></div>
-    <div class="hero-slide" style="background-image:{{VAR:hero2.webp}}"></div>
-    <div class="hero-slide" style="background-image:url('{{ASSET:hero3.webp}}')"></div>
+    <video class="hero-video on" autoplay muted loop playsinline preload="auto" poster="{{ASSET:hero-poster.webp}}" aria-label="Two roofers from {{BUSINESS}} at work on a terraced house roof, scaffold up and the truck below">
+      <source src="{{ASSET:hero1.mp4}}" type="video/mp4">
+    </video>
+    <video class="hero-video" muted loop playsinline preload="auto" aria-label="Drone orbit of a detached red brick house with its new grey tiled roof, fields behind">
+      <source src="{{ASSET:hero2.mp4}}" type="video/mp4">
+    </video>
   </div>
   <div class="hero-scrim"></div>
 
@@ -182,19 +202,15 @@
     <div class="center rv">
       <span class="eyebrow">Before and after</span>
       <h2 class="title">Real transformations</h2>
-      <p class="lede">Drag the handle to see how each roof started and how it was left.</p>
+      <p class="lede">The first clip plays on its own. Drag the handle on the others to see how each roof started and how it was left.</p>
     </div>
     <div class="zig">
 
       <article class="zig-row rv">
         <div class="zig-media">
-          <div class="ba wide" data-ba>
-            <img src="{{ASSET:t1_before.webp}}" alt="Drone photograph of a detached red brick house with an old moss covered roof of mixed tiles, before the re-roof">
-            <div class="after-wrap"><img src="{{ASSET:t1_after.webp}}" alt="The same house from the air with a new grey tiled roof from eaves to ridge"></div>
-            <div class="ba-lbl b">Before</div>
-            <div class="ba-lbl a">After</div>
-            <div class="ba-handle"><span class="ba-knob"><svg viewBox="0 0 24 24"><path d="m9 7-5 5 5 5"/><path d="m15 7 5 5-5 5"/></svg></span></div>
-          </div>
+          <video class="zig-video wide" autoplay muted loop playsinline preload="metadata" poster="{{ASSET:t0-poster.webp}}" data-scrollplay aria-label="Drone clip of a detached red brick house: the old moss covered roof sweeps across into the new grey tiled roof">
+            <source src="{{ASSET:t0.mp4}}" type="video/mp4">
+          </video>
         </div>
         <div class="zig-copy">
           <span class="num">Project 01</span>
@@ -651,6 +667,48 @@
     };
     restartHero();
   } else if (dotsBox) { dotsBox.style.display = "none"; }
+
+  /* ---------- hero: two clips on a crossfade loop ----------
+     Fade ONLY the incoming clip; the outgoing stays at opacity 1 underneath on a
+     lower z-index, so the ground never shows through mid-fade. PERIOD + FADE must
+     stay inside the shortest clip (5.04s) or the loop point is visible. Only the
+     first clip carries autoplay; the second starts from here. -------- */
+  var hv = Array.prototype.slice.call(document.querySelectorAll(".hero-video"));
+  if (hv.length > 1){
+    var PERIOD = 3900, FADE = 1000, cur = 0, heroLoop, heroFade;
+    var playV = function(v){ var p = v.play(); if (p && p.catch) p.catch(function(){}); };
+    var stepHero = function(){
+      var out = hv[cur], nxt = (cur + 1) % hv.length, inc = hv[nxt];
+      if (!inc.seeking && inc.readyState >= 2){ try { inc.currentTime = 0; } catch (e) {} }
+      playV(inc);
+      inc.classList.remove("under"); inc.classList.add("top");
+      out.classList.remove("top"); out.classList.add("under");
+      inc.classList.add("on");
+      clearTimeout(heroFade);
+      heroFade = setTimeout(function(){ out.classList.remove("on"); out.classList.remove("under"); out.pause(); }, FADE + 80);
+      cur = nxt;
+    };
+    var startHero = function(){ clearInterval(heroLoop); playV(hv[cur]); heroLoop = setInterval(stepHero, PERIOD); };
+    startHero();
+    document.addEventListener("visibilitychange", function(){
+      if (document.hidden){ clearInterval(heroLoop); hv.forEach(function(v){ v.pause(); }); }
+      else { startHero(); }
+    });
+  }
+
+  /* ---------- transformation videos: play when scrolled into view, pause when out ---------- */
+  var scrollVids = Array.prototype.slice.call(document.querySelectorAll("video[data-scrollplay]"));
+  if (scrollVids.length){
+    var playVid = function(v){ var p = v.play(); if (p && p.catch) p.catch(function(){}); };
+    if ("IntersectionObserver" in window){
+      var vio = new IntersectionObserver(function(entries){
+        entries.forEach(function(en){ if (en.isIntersecting) playVid(en.target); else en.target.pause(); });
+      }, {threshold:0.35});
+      scrollVids.forEach(function(v){ vio.observe(v); });
+    } else {
+      scrollVids.forEach(playVid);
+    }
+  }
 
   /* ---------- before / after sliders ---------- */
   document.querySelectorAll("[data-ba]").forEach(function(ba){
